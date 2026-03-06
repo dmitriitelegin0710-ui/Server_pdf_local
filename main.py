@@ -4,6 +4,7 @@ from urllib.parse import quote
 import boto3
 from botocore.exceptions import ClientError
 import os
+import time
 
 app = FastAPI(title="Документация Smart Lift")
 
@@ -20,11 +21,20 @@ s3 = boto3.client(
     region_name="ru-central1"
 )
 
+# Кэш файлов
+_cache = {"data": None, "timestamp": 0}
+CACHE_TTL = 300  # 5 минут
+
 
 @app.get("/files")
 def list_files():
+    global _cache
+
+    # Отдаём кэш если он свежий
+    if _cache["data"] is not None and (time.time() - _cache["timestamp"]) < CACHE_TTL:
+        return JSONResponse(content=_cache["data"])
+
     try:
-        # Получаем ВСЕ файлы (до 1000, если больше — используем пагинацию)
         all_objects = []
         paginator = s3.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=S3_BUCKET):
@@ -35,17 +45,14 @@ def list_files():
         for obj in all_objects:
             key = obj["Key"]
 
-            # Пропускаем "папки" (ключи заканчивающиеся на /)
             if key.endswith("/"):
                 continue
 
-            # Если есть "/" — значит файл лежит в папке-категории
             if "/" in key:
                 parts = key.split("/", 1)
                 category = parts[0]
                 filename = parts[1]
             else:
-                # Файл в корне бакета → категория "Общее"
                 category = "Общее"
                 filename = key
 
@@ -59,10 +66,13 @@ def list_files():
                 "url": f"/files/{quote(category)}/{quote(filename)}"
             })
 
-        return JSONResponse(content={
-            "total_files": len(all_objects),
-            "categories": categories
-        })
+        result = {"total_files": len(all_objects), "categories": categories}
+
+        # Сохраняем в кэш
+        _cache["data"] = result
+        _cache["timestamp"] = time.time()
+
+        return JSONResponse(content=result)
 
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
