@@ -104,6 +104,11 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/ping")
+def ping():
+    return {"status": "alive"}
+
+
 @app.get("/debug")
 def debug():
     try:
