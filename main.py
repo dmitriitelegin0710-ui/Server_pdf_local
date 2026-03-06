@@ -24,15 +24,44 @@ s3 = boto3.client(
 @app.get("/files")
 def list_files():
     try:
-        response = s3.list_objects_v2(Bucket=S3_BUCKET)
-        contents = response.get("Contents", [])
+        # Получаем ВСЕ файлы (до 1000, если больше — используем пагинацию)
+        all_objects = []
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=S3_BUCKET):
+            all_objects.extend(page.get("Contents", []))
+
+        categories = {}
+
+        for obj in all_objects:
+            key = obj["Key"]
+
+            # Пропускаем "папки" (ключи заканчивающиеся на /)
+            if key.endswith("/"):
+                continue
+
+            # Если есть "/" — значит файл лежит в папке-категории
+            if "/" in key:
+                parts = key.split("/", 1)
+                category = parts[0]
+                filename = parts[1]
+            else:
+                # Файл в корне бакета → категория "Общее"
+                category = "Общее"
+                filename = key
+
+            if category not in categories:
+                categories[category] = []
+
+            categories[category].append({
+                "filename": filename,
+                "size": obj["Size"],
+                "last_modified": obj["LastModified"].isoformat(),
+                "url": f"/files/{quote(category)}/{quote(filename)}"
+            })
 
         return JSONResponse(content={
-            "debug_count": len(contents),
-            "debug_bucket": S3_BUCKET,
-            "debug_key_set": S3_ACCESS_KEY is not None,
-            "debug_secret_set": S3_SECRET_KEY is not None,
-            "categories": {}
+            "total_files": len(all_objects),
+            "categories": categories
         })
 
     except ClientError as e:
