@@ -102,3 +102,18 @@ def get_file(category: str, filename: str):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/debug")
+def debug():
+    try:
+        response = s3.list_objects_v2(Bucket=S3_BUCKET)
+        raw = response.get("Contents", [])
+        return {
+            "key_set": S3_ACCESS_KEY is not None,
+            "secret_set": S3_SECRET_KEY is not None,
+            "raw_count": len(raw),
+            "first_keys": [obj["Key"] for obj in raw[:5]]
+        }
+    except ClientError as e:
+        return {"error": str(e)}
